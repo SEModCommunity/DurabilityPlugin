@@ -28,6 +28,7 @@ namespace DurabilityPlugin
 
 		private bool m_isActive;
 		private static float m_damageRate;
+		private Thread m_mainUpdateLoop;
 
 		protected TimeSpan m_timeSinceLastUpdate;
 		protected DateTime m_lastUpdate;
@@ -46,6 +47,8 @@ namespace DurabilityPlugin
 			m_timeSinceLastUpdate = DateTime.Now - m_lastUpdate;
 
 			m_damageRate = 1.0f;
+
+			m_mainUpdateLoop = new Thread(MainUpdate);
 		}
 
 		#endregion
@@ -74,34 +77,77 @@ namespace DurabilityPlugin
 
 		public override void Update()
 		{
-			if (!m_isActive)
-				return;
-
-			m_timeSinceLastUpdate = DateTime.Now - m_lastUpdate;
-			m_lastUpdate = DateTime.Now;
-
-			TimeSpan timeSinceLastFullScan = DateTime.Now - m_lastFullScan;
-			if (timeSinceLastFullScan.TotalMilliseconds > 10000)
+			if (!m_mainUpdateLoop.IsAlive)
 			{
-				m_lastFullScan = DateTime.Now;
-
-				Thread thread = new Thread(FullScan);
-				thread.Start();
+				m_mainUpdateLoop.Start();
 			}
 		}
 
 		public override void Shutdown()
 		{
 			m_isActive = false;
+
+			m_mainUpdateLoop.Interrupt();
 		}
 
 		#endregion
+
+		protected void MainUpdate()
+		{
+			DateTime lastFullScan = DateTime.Now;
+			DateTime lastMainLoop = DateTime.Now;
+			TimeSpan timeSinceLastMainLoop = DateTime.Now - lastMainLoop;
+			float averageMainLoopInterval = 0;
+			float averageMainLoopTime = 0;
+			DateTime lastProfilingMessage = DateTime.Now;
+			TimeSpan timeSinceLastProfilingMessage = DateTime.Now - lastProfilingMessage;
+
+			while (m_isActive)
+			{
+				try
+				{
+					DateTime mainLoopStart = DateTime.Now;
+
+					TimeSpan timeSinceLastFullScan = DateTime.Now - m_lastFullScan;
+					if (timeSinceLastFullScan.TotalSeconds > 15)
+					{
+						m_lastFullScan = DateTime.Now;
+
+						FullScan();
+					}
+
+					//Performance profiling
+					timeSinceLastMainLoop = DateTime.Now - lastMainLoop;
+					lastMainLoop = DateTime.Now;
+					TimeSpan mainLoopRunTime = DateTime.Now - mainLoopStart;
+					averageMainLoopInterval = (averageMainLoopInterval + (float)timeSinceLastMainLoop.TotalMilliseconds) / 2;
+					averageMainLoopTime = (averageMainLoopTime + (float)mainLoopRunTime.TotalMilliseconds) / 2;
+					timeSinceLastProfilingMessage = DateTime.Now - lastProfilingMessage;
+					if (timeSinceLastProfilingMessage.TotalSeconds > 10)
+					{
+						lastProfilingMessage = DateTime.Now;
+
+						LogManager.APILog.WriteLine("DurabilityPlugin - Average main loop interval: " + Math.Round(averageMainLoopInterval, 2).ToString() + "ms");
+						LogManager.APILog.WriteLine("DurabilityPlugin - Average main loop time: " + Math.Round(averageMainLoopTime, 2).ToString() + "ms");
+					}
+
+					//Pause between loops
+					int nextSleepTime = Math.Min(500, Math.Max(100, 200 + (200 - (int)timeSinceLastMainLoop.TotalMilliseconds) / 2));
+					Thread.Sleep(nextSleepTime);
+				}
+				catch (Exception ex)
+				{
+					LogManager.GameLog.WriteLine(ex);
+					Thread.Sleep(5000);
+				}
+			}
+		}
 
 		private void FullScan()
 		{
 			try
 			{
-				LogManager.APILog.WriteLineAndConsole("Damaging stuff!");
+				LogManager.APILog.WriteLine("Damaging stuff!");
 
 				DateTime startFullScan = DateTime.Now;
 				List<CubeGridEntity> cubeGridList = SectorObjectManager.Instance.GetTypedInternalData<CubeGridEntity>();
@@ -113,7 +159,7 @@ namespace DurabilityPlugin
 					DoDamage(cubeGrid);
 				}
 				TimeSpan totalFullScanTime = DateTime.Now - startFullScan;
-				LogManager.APILog.WriteLineAndConsole("Finished damaging stuff in " + Math.Round(totalFullScanTime.TotalSeconds, 4).ToString() + " seconds");
+				LogManager.APILog.WriteLine("Finished damaging stuff in " + Math.Round(totalFullScanTime.TotalSeconds, 4).ToString() + " seconds");
 			}
 			catch (Exception ex)
 			{
@@ -150,8 +196,15 @@ namespace DurabilityPlugin
 
 				float solarRadiationDamage = 0.125f;
 				float randomDamage = (float)random.NextDouble() * 0.4f;
-				float wearAndTearDamange = 0.0f;	//TODO - Determine this amount based on power usage
+				float wearAndTearDamange = 0.0f;
 				float reactorRadiationDamage = 0.0f;
+
+				//Calculate wear and tear damage based on power usage
+				if (cubeBlock is FunctionalBlockEntity)
+				{
+					FunctionalBlockEntity functionalBlock = (FunctionalBlockEntity)cubeBlock;
+					wearAndTearDamange = functionalBlock.CurrentInput;
+				}
 
 				//Only calculate reactor radiation for non-reactors
 				if (!(cubeBlock is ReactorEntity))
