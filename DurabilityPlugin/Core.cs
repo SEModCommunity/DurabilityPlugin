@@ -27,8 +27,16 @@ namespace DurabilityPlugin
 		#region "Attributes"
 
 		private bool m_isActive;
-		private static float m_damageRate;
 		private Thread m_mainUpdateLoop;
+
+		private static float m_damageRate;
+		private static float m_solarRadiationRate;
+		private static float m_micrometeoriteRate;
+		private static float m_wearAndTearRate;
+
+		private static float m_reactorRadiationBase;
+		private static float m_reactorRadiationBaseRange;
+		private static float m_reactorPowerRate;
 
 		protected TimeSpan m_timeSinceLastUpdate;
 		protected DateTime m_lastUpdate;
@@ -46,9 +54,16 @@ namespace DurabilityPlugin
 			m_lastFullScan = DateTime.Now;
 			m_timeSinceLastUpdate = DateTime.Now - m_lastUpdate;
 
-			m_damageRate = 1.0f;
-
 			m_mainUpdateLoop = new Thread(MainUpdate);
+
+			m_damageRate = 1.0f;
+			m_solarRadiationRate = 0.125f;
+			m_micrometeoriteRate = 0.4f;
+			m_wearAndTearRate = 1.0f;
+
+			m_reactorRadiationBase = 0.1f;
+			m_reactorRadiationBaseRange = 5.0f;
+			m_reactorPowerRate = 0.2f;
 		}
 
 		#endregion
@@ -62,6 +77,60 @@ namespace DurabilityPlugin
 		{
 			get { return m_damageRate; }
 			set { m_damageRate = value; }
+		}
+
+		[Category("Durability Plugin")]
+		[Browsable(true)]
+		[ReadOnly(false)]
+		public float SolarRadiationRate
+		{
+			get { return m_solarRadiationRate; }
+			set { m_solarRadiationRate = value; }
+		}
+
+		[Category("Durability Plugin")]
+		[Browsable(true)]
+		[ReadOnly(false)]
+		public float MicrometeoriteRate
+		{
+			get { return m_micrometeoriteRate; }
+			set { m_micrometeoriteRate = value; }
+		}
+
+		[Category("Durability Plugin")]
+		[Browsable(true)]
+		[ReadOnly(false)]
+		public float WearAndTearRate
+		{
+			get { return m_wearAndTearRate; }
+			set { m_wearAndTearRate = value; }
+		}
+
+		[Category("Durability Plugin")]
+		[Browsable(true)]
+		[ReadOnly(false)]
+		public float ReactorRadiationBase
+		{
+			get { return m_reactorRadiationBase; }
+			set { m_reactorRadiationBase = value; }
+		}
+
+		[Category("Durability Plugin")]
+		[Browsable(true)]
+		[ReadOnly(false)]
+		public float ReactorRangeBase
+		{
+			get { return m_reactorRadiationBaseRange; }
+			set { m_reactorRadiationBaseRange = value; }
+		}
+
+		[Category("Durability Plugin")]
+		[Browsable(true)]
+		[ReadOnly(false)]
+		public float ReactorPowerRate
+		{
+			get { return m_reactorPowerRate; }
+			set { m_reactorPowerRate = value; }
 		}
 
 		#endregion
@@ -194,8 +263,8 @@ namespace DurabilityPlugin
 
 				Random random = new Random((int)DateTime.Now.ToBinary());
 
-				float solarRadiationDamage = 0.125f;
-				float randomDamage = (float)random.NextDouble() * 0.4f;
+				float solarRadiationDamage = SolarRadiationRate;
+				float randomDamage = (float)random.NextDouble() * MicrometeoriteRate;
 				float wearAndTearDamange = 0.0f;
 				float reactorRadiationDamage = 0.0f;
 
@@ -203,7 +272,7 @@ namespace DurabilityPlugin
 				if (cubeBlock is FunctionalBlockEntity)
 				{
 					FunctionalBlockEntity functionalBlock = (FunctionalBlockEntity)cubeBlock;
-					wearAndTearDamange = functionalBlock.CurrentInput;
+					wearAndTearDamange = functionalBlock.CurrentInput * WearAndTearRate;
 				}
 
 				//Only calculate reactor radiation for non-reactors
@@ -217,8 +286,8 @@ namespace DurabilityPlugin
 						Vector3 blockDistance = ((Vector3I)cubeBlock.Min - (Vector3I)reactor.Min) * blockSize;
 						float totalDistance = blockDistance.Length();
 
-						float leakingRadiation = 0.1f + (0.5f * (1.0f / reactor.IntegrityPercent) - 0.5f);
-						float reactorRange = 5.0f + 0.2f * reactor.Power;
+						float leakingRadiation = ReactorRadiationBase + (0.5f * (1.0f / reactor.IntegrityPercent) - 0.5f);
+						float reactorRange = ReactorRangeBase + ReactorPowerRate * reactor.Power;
 						if (totalDistance <= reactorRange)
 							reactorRadiationDamage += (reactorRange / totalDistance) * leakingRadiation;
 					}
